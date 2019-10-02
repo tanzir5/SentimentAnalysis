@@ -4,7 +4,8 @@ Requirements:
 2. pip3 install tensorflow
 3. pip3 install keras
 4. pip3 install matplotlib
-5. pip3 install virtualenv
+5. pip3 install gensim
+6. pip3 install virtualenv
     
     #creating virtualenv:
       i) mkdir python-virtual-environments
@@ -16,4 +17,4 @@ Requirements:
     #deactivating
       deactivate
 
-6. ??
+7. ??
