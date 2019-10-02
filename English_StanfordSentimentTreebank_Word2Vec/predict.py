@@ -1,9 +1,10 @@
 from keras.models import load_model
 import numpy
 from gensim.models import Word2Vec
+import gensim
 
 mxSize = 55
-word2VecModel = Word2Vec.load("sentimentTreebankWord2vec.model")
+word2VecModel = gensim.models.KeyedVectors.load_word2vec_format("Data/GoogleNews-vectors-negative300.bin", binary=True, limit=100000)
 wordVectors = word2VecModel.wv
 dimension = word2VecModel.vector_size
 zeroVector = [0] * dimension
@@ -28,7 +29,7 @@ def solve(line):
 	dataX = dataX.reshape(1, mxSize, dimension, 1)
 	ret = model.predict(dataX)
 	print(ret)
-	if(ret[0][0] > ret[0][1]):
+	if(ret[0][0] < ret[0][1]):
 		return "Negative"
 	else: 
 		return "Positive"
