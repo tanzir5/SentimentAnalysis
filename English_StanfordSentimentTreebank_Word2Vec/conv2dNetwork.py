@@ -8,17 +8,20 @@ from keras.utils import to_categorical
 
 dimension = 0
 sentiment = {int:float}
-mxSize = 5
-totalData = 0
-X = []
-Y = []
-
+mxSize = 60
+Xtrain = []
+Ytrain = []
+Xtest = []
+Ytest = []
 def error(message):
 	print(message)
 	exit(0)
 
-def processDatasetX():
-	global dimension, sentiment, mxSize, totalData, X, Y
+def processDatasetX(location):
+	global dimension, sentiment, mxSize, totalData
+	
+	X = []
+	Y = []
 	
 	#word2vecModel = Word2Vec.load("sentimentTreebankWord2vec.model")
 	word2vecModel = gensim.models.KeyedVectors.load_word2vec_format("Data/GoogleNews-vectors-negative300.bin", binary=True, limit=100000)
@@ -28,7 +31,7 @@ def processDatasetX():
 	zeroVector = [0] * dimension
 	
 	
-	for line in open("Data/dictionary.txt"):
+	for line in open(location):
 		line = line.lower()
 		s = line.split()
 		idString = s[-1][s[-1].find("|")+1:]
@@ -45,13 +48,12 @@ def processDatasetX():
 		if(wordInSentence >= 4):
 			X.append(curDataX)
 			Y.append([sentiment[id], 1-sentiment[id]])
-			mxSize = max(mxSize, len(curDataX))
-			totalData += 1
-	
+			
 	for i in range(len(X)):
 		st = len(X[i])
 		for j in range(st, mxSize):
 			X[i].append(zeroVector)
+	return (X, Y)
 				
 def processDatasetY():
 	positive = 0
@@ -77,11 +79,14 @@ def processDatasetY():
 			
 	print(positive, negative)
 	'''
-	
-def processDataset():
-	processDatasetY()
-	processDatasetX()
 
+def processDataset():
+	global Xtrain, Ytrain, Xtest, Ytest
+	processDatasetY()
+	(Xtrain, Ytrain) = processDatasetX("Data/train.txt")
+	(Xtest, Ytest) = processDatasetX("Data/test.txt")
+	
+'''
 def verifyDataset():
 	global X
 	print("---------------------------------")
@@ -89,24 +94,33 @@ def verifyDataset():
 		if(len(i) != mxSize): 
 			print(len(i))
 			exit(0)
+'''
+
+
+def binaryMetric(y_true, y_pred):
+	correct = 0
+	for i in range(0, y_true.shape[0]): 
+		if( (y_true[i][0] <= 0.5 and y_pred[i][0] <= 0.5) or (y_true[i][0] >= 0.5 and y_pred[i][0] >= 0.5)) : 
+			correct += 1
+	return (correct * 100.0)/ed
+
+
+def configureDataset(X,Y):
+	dataY = numpy.array(Y)
+	dataX = numpy.array(X)
+	dataX = dataX.reshape(len(X), len(X[0]), len(X[0][0]), 1)
+	return (dataX, dataY)
 				
 processDataset()
 
-print("Max size of X: " + str(mxSize) + ", totalData: " + str(totalData));
-
-verifyDataset()
-print("OK")
+#print("Max size of X: " + str(mxSize) + ", totalData: " + str(totalData));
 
 
-dataY = numpy.array(Y)
-print(dataY.shape)
-dataX = numpy.array(X)
-print(dataX.shape)
-dataX = dataX.reshape(len(X), len(X[0]), len(X[0][0]), 1)
-print(dataX.shape)
-print(mxSize, dimension, "1")
-#dataY = to_categorical(dataY)
-#create model
+
+
+(trainX, trainY) = configureDataset(Xtrain, Ytrain)
+(testX, testY) = configureDataset(Xtest, Ytest)
+
 model = Sequential()
 model.add(Conv2D(300, kernel_size=(5,dimension), activation="linear", input_shape=(mxSize, dimension, 1)))
 model.add(MaxPooling2D(pool_size=(mxSize-4,1)))
@@ -115,6 +129,6 @@ model.add(Dense(300, activation = "sigmoid"))
 model.add(Dense(2, activation="softmax"))
 sgd = SGD(learning_rate=0.01)
 model.compile(optimizer = sgd, loss='binary_crossentropy', metrics=['mse'])
-model.fit(dataX, dataY, epochs=15)
+model.fit(trainX, trainY, validation_data = (testX, testY), epochs=15)
 model.save("FirstModel.h5")
 
