@@ -17,4 +17,5 @@ Requirements:
     #deactivating
       deactivate
 
-7. ??
+7. Download GoogleNews-vectors-negative300.bin.gz 
+   from https://code.google.com/archive/p/word2vec/
