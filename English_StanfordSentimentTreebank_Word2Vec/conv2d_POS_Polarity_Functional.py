@@ -24,7 +24,7 @@ NOUN =    [0, 1, 0, 0]
 ADV =     [0, 0, 1, 0]
 VERB =    [0, 0, 0, 1]
 
-word2vecModel = gensim.models.KeyedVectors.load_word2vec_format("Data/GoogleNews-vectors-negative300.bin", binary=True, limit = 100)
+word2vecModel = gensim.models.KeyedVectors.load_word2vec_format("Data/GoogleNews-vectors-negative300.bin", binary=True)
 wordVectors = word2vecModel.wv
 dimensionWV = word2vecModel.vector_size
 dimensionPosPol = 8	
