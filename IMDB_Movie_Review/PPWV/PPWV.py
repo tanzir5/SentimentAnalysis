@@ -11,9 +11,8 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet as wn
 from nltk.corpus import sentiwordnet as swn
 from nltk import sent_tokenize, word_tokenize, pos_tag
- 
-homeDir = "/home/robolab/Desktop/Tanzir/SentimentAnalysis/SentimentAnalysis/IMDB_Movie_Review/"
-home = "/home/robolab/Desktop/Tanzir/SentimentAnalysis/SentimentAnalysis/"
+
+homeDir = "/home/robolab/Desktop/Tanzir/SentimentAnalysis/SentimentAnalysis/IMDB/"
 
 
 POSITIVE = [1, 0, 0, 0]
@@ -27,15 +26,14 @@ ADV =     [0, 0, 1, 0, 0]
 VERB =    [0, 0, 0, 1, 0]
 OTHERS =  [0, 0, 0, 0, 1]
 
-word2vecModel = gensim.models.KeyedVectors.load_word2vec_format(home+"English_StanfordSentimentTreebank_Word2Vec/Data/GoogleNews-vectors-negative300.bin", binary=True)
+word2vecModel = gensim.models.KeyedVectors.load_word2vec_format("/Users/AeronTech/Desktop/Thesis_2019/Projects/English_StanfordSentimentTreebank_Word2Vec/Data/GoogleNews-vectors-negative300.bin", binary=True)
 wordVectors = word2vecModel.wv
 dimensionWV = word2vecModel.vector_size
 dimensionPosPol = 9	
 zeroVectorWV = [0] * dimensionWV
 zeroVectorPosPol = [0] * dimensionPosPol
 
-sentiment = {int:float}
-mxSize = 60
+mxSize = 2750
 Xtrain = []
 Ytrain = []
 Xtest = []
@@ -76,8 +74,8 @@ def singleDataFormat(data):
 	#print(doc)
 	raw_sentences = sent_tokenize(doc)
 	#print("OKDATA")
-	eps = 0.1
-	threshhold = 0.5
+	eps = 0.05
+	threshhold = 0.6
 	
 	for raw_sentence in raw_sentences:
 		tagged_sentence = pos_tag(word_tokenize(raw_sentence))
@@ -128,74 +126,59 @@ def singleDataFormat(data):
 		#print(doc)
 	return (WV, posPol, ok)
 	
-def processDatasetX(location):
-	global  sentiment, mxSize, totalData, zeroVectorWV
+def processDatasetX(location, sentiment):
+	global  mxSize, totalData, zeroVectorWV
 	
-	wvX = []
-	posPolX = []
-	Y = []
+	wvTrainX = []
+	ppTrainX = []
+	trainY = []
+
+	wvTestX = []
+	ppTestX = []
+	testY = []
 
 	accepted = 0
 	rejected = 0
-	for line in open(location):
-		line = line.lower()
-		s = line.split()
-		idString = s[-1][s[-1].find("|")+1:]
-		lastWord = s[-1][0:s[-1].find("|")]
-		id = int(idString)
-		#print(s, idString)
-		s = s[:-1] 
-		s.append(lastWord)
-		
-		#print(s)
-		if(len(s) < 4):
+	
+	for fileName in os.listdir(location):
+		f = open(path+"/"+fileName, "r")
+		text = f.read()
+		f.close()
+		if(len(text.split()) < 4):
 			rejected += 1
 			continue
-		(wvCur, posPolCur, ok) = singleDataFormat(s)
-		
+		(wvCur, posPolCur, ok) = singleDataFormat(text)
+		y = sentiment
 		if(ok):
-			wvX.append(wvCur)
-			posPolX.append(posPolCur)
-			Y.append([sentiment[id], 1-sentiment[id]])
 			accepted += 1
+			if(accepted%10 != 0):
+				wvTrainX.append(wvCur)
+				ppTrainX.append(posPolCur)
+				trainY.append([y, 1-y])
+			else:
+				wvTestX.append(wvCur)
+				ppTestX.append(posPolCur)
+				testY.append([y, 1-y])
+			
 		else: 
 	#		print(line)
 			rejected += 1
 	
-	for i in range(len(wvX)):
-		st = len(wvX[i])
+	for i in range(len(wvTrainX)):
+		st = len(wvTrainX[i])
 		for j in range(st, mxSize):
-			wvX[i].append(zeroVectorWV)
-			posPolX[i].append(zeroVectorPosPol)
+			wvTrainX[i].append(zeroVectorWV)
+			ppTrainX[i].append(zeroVectorPosPol)
+	
+	for i in range(len(wvTestX)):
+		st = len(wvTestX[i])
+		for j in range(st, mxSize):
+			wvTestX[i].append(zeroVectorWV)
+			ppTestX[i].append(zeroVectorPosPol)
+	
 	
 	print("ac: " + str(accepted) + ", rejected: " + str(rejected))
-	return (wvX, posPolX, Y)
-				
-def processDatasetY():
-	positive = 0
-	negative = 0
-	start = True
-	for line in open(homeDir+"Data/sentiment_labels.txt"):
-		if(start): 
-			start = False
-		else:
-			data = line.split("|")
-			if(len(data) != 2):
-				error("Inside processDatasetY(), there are not two datas.")
-			id = int(data[0])
-			label = float(data[1])
-			sentiment[id] = label
-			'''
-			if(label >= 0.5): 
-				sentiment[id] = 1
-				positive += 1
-			else: 
-				sentiment[id] = 0
-				negative += 1
-			
-	print(positive, negative)
-	'''
-
+	return (wvTrainX, ppTrainX, trainY, wvTestX, ppTestX, testY)
 
 def toNumpy2(X,Y):
 	dataY = numpy.array(Y)
@@ -217,14 +200,27 @@ def toNumpy1(X):
 	return dataX
 	
 def processDataset():
-	processDatasetY()
-	(tempWVX, tempPPX, tempY) = processDatasetX(homeDir+"Data/cleanTrain.txt")
-	(xTrain, yTrain) = toNumpy2(tempWVX, tempY) 
-	trainPosPol = toNumpy1(tempPPX)
-	(tempWVX, tempPPX, tempY) = processDatasetX(homeDir+"Data/cleanTest.txt")
-	(xTest, yTest) =  toNumpy2(tempWVX, tempY)
-	testPosPol = toNumpy1(tempPPX)
-	return (xTrain, trainPosPol, yTrain, xTest, testPosPol, yTest)
+	(wvTrainX, ppTrainX, trainY, wvTestX, ppTestX, testY) = processDatasetX(homeDir+"pos", 1)
+	(_wvTrainX, _ppTrainX, _trainY, _wvTestX, _ppTestX, _testY) = processDatasetX(homeDir+"neg", 0)
+	
+	wvTrainX += _wvTrainX
+	ppTrainX += _ppTrainX
+	trainY += _trainY
+	
+	wvTestX += _wvTestX
+	ppTestX += _ppTestX
+	testY += _testY
+	
+	
+	(np_wvTrainX, np_trainY) = toNumpy2(wvTrainX, trainY) 
+	
+	np_ppTrainX = toNumpy1(ppTrainX)
+	
+	(np_wvTestX, np_testY) = toNumpy2(wvTestX, testY) 
+	
+	np_ppTestX = toNumpy1(ppTestX)
+	
+	return (np_wvTrainX, np_ppTrainX, np_trainY, np_wvTestX, np_ppTestX, np_testY)
 	
 '''
 def verifyDataset():
@@ -270,8 +266,8 @@ print("OKOK")
 sgd = SGD(learning_rate=0.01)
 model = Model(inputs = [inputWV, inputPP], outputs = output)
 model.compile(optimizer = sgd, loss='binary_crossentropy', metrics=['mse'])
-model.fit([trainX_WV, trainX_PosPol], trainY, validation_data = ([testX_WV, testX_PosPol], testY), epochs=100)
-model.save("FunctionalPosPolWV_2.h5")
+model.fit([trainX_WV, trainX_PosPol], trainY, validation_data = ([testX_WV, testX_PosPol], testY), epochs=120)
+model.save("PPWV_IMDB_1.h5")
 print("DONE")
 
   
