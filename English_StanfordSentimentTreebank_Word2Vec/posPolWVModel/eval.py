@@ -1,73 +1,165 @@
-'''
-Correct = 8503 
-Total = 10439 
-Accuracy = 81.45416227608008%
-'''
 from keras.models import Sequential
-from keras.layers import Dense, Conv2D, Flatten, MaxPooling2D
+from keras.layers import concatenate, Dense, Conv2D, Flatten, MaxPooling2D, Input
 from keras.optimizers import SGD
+from keras.models import Model
 from gensim.models import Word2Vec
 import numpy
 import gensim
 from keras.utils import to_categorical
-from keras.models import load_model
+
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import wordnet as wn
+from nltk.corpus import sentiwordnet as swn
+from nltk import sent_tokenize, word_tokenize, pos_tag
+
+
+
+POSITIVE = [1, 0, 0, 0]
+NEGATIVE = [0, 1, 0, 0]
+NEUTRAL = [0, 0, 1, 0]
+AMBIGUOUS = [0, 0, 0, 1]
+
+ADJ =     [1, 0, 0, 0]
+NOUN =    [0, 1, 0, 0]
+ADV =     [0, 0, 1, 0]
+VERB =    [0, 0, 0, 1]
 
 homeDir = "/home/robolab/Desktop/Tanzir/SentimentAnalysis/SentimentAnalysis/English_StanfordSentimentTreebank_Word2Vec/"
 
-dimension = 0
+
+word2vecModel = gensim.models.KeyedVectors.load_word2vec_format(homeDir + "Data/GoogleNews-vectors-negative300.bin", binary=True)
+wordVectors = word2vecModel.wv
+dimensionWV = word2vecModel.vector_size
+dimensionPosPol = 8	
+zeroVectorWV = [0] * dimensionWV
+zeroVectorPosPol = [0] * dimensionPosPol
+
 sentiment = {int:float}
-mxSize = 55
-Xtrain = []
-Ytrain = []
-Xtest = []
-Ytest = []
+mxSize = 60
 def error(message):
 	print(message)
 	exit(0)
 
-def processDatasetX():
-	global dimension, sentiment, mxSize, totalData
-	
-	X = []
-	Y = []
-	
-	#word2vecModel = Word2Vec.load("sentimentTreebankWord2vec.model")
-	word2vecModel = gensim.models.KeyedVectors.load_word2vec_format(homeDir+"Data/GoogleNews-vectors-negative300.bin", binary=True, limit=100000)
 
-	wordVectors = word2vecModel.wv
-	dimension = word2vecModel.vector_size	
-	zeroVector = [0] * dimension
+
+#can be modified to be better
+def penn_to_wn(tag):
+    """
+    Convert between the PennTreebank tags to simple Wordnet tags
+    """
+    if tag.startswith('J'):
+        return (wn.ADJ, ADJ)
+    elif tag.startswith('N'):
+        return (wn.NOUN, NOUN)
+    elif tag.startswith('R'):
+        return (wn.ADV, ADV)
+    elif tag.startswith('V'):
+        return (wn.VERB, VERB)
+    
+    return (None, None)
+
+def singleDataFormat(data):
+	global POSITIVE, NEGATIVE, NEUTRAL, AMBIGUOUS, wordVectors
+	doc = ""
+	for w in data:
+		doc += w
+		doc += " "
+	doc = doc[:-1]
+	WV = []
+	totalWords = 0
+	posPol = []
+	#print("DATA")
+	#print(doc)
+	raw_sentences = sent_tokenize(doc)
+	#print("OKDATA")
+	eps = 0.1
+	threshhold = 0.5
 	
+	for raw_sentence in raw_sentences:
+		tagged_sentence = pos_tag(word_tokenize(raw_sentence))
+
+		for word, tag in tagged_sentence:
+			(wn_tag, tmp) = penn_to_wn(tag)
+			
+			if wn_tag not in (wn.NOUN, wn.ADJ, wn.ADV, wn.VERB):
+				#print(word, wn_tag)
+				continue
+			posPolCur = tmp.copy()
+			lemma = WordNetLemmatizer().lemmatize(word, pos=wn_tag)
+			#print(word, lemma)
+			if not lemma:
+				#print(word, lemma, "2")
+				continue
+			synsets = wn.synsets(lemma, pos=wn_tag)
+			if not synsets:
+				#print(word)
+				continue
+			
+			# Take the first sense, the most common
+			synset = synsets[0]
+			swn_synset = swn.senti_synset(synset.name())
+			
+			if swn_synset.obj_score() >= threshhold:
+				posPolCur += NEUTRAL				
+			elif swn_synset.pos_score() > swn_synset.neg_score() + eps: 
+				posPolCur += POSITIVE
+			elif swn_synset.neg_score() > swn_synset.pos_score() + eps:
+				posPolCur += NEGATIVE
+			else: 
+				posPolCur += AMBIGUOUS
+			
+			if word in wordVectors:
+				totalWords += 1
+				WV.append(wordVectors[word])
+			else: 
+				WV.append(zeroVectorWV)		
+			posPol.append(posPolCur)	
+			
+	ok = True
+	if totalWords >= 4: 
+		ok = True
+	else: 
+		ok = False
+	return (WV, posPol, ok)
 	
-	for line in open(homeDir+"Data/test.txt"):
+def processDatasetX(location):
+	global  sentiment, mxSize, totalData, zeroVectorWV
+	
+	wvX = []
+	posPolX = []
+	Y = []
+
+	cnt = 0
+	for line in open(location):
 		line = line.lower()
 		s = line.split()
 		idString = s[-1][s[-1].find("|")+1:]
 		id = int(idString)
+		#print(s, idString)
 		s = s[:-1]
-		wordInSentence = 0
-		curDataX = []
-		for word in s: 
-			if word in wordVectors:
-				wordInSentence += 1
-				curDataX.append(wordVectors[word])
-			else: 
-				curDataX.append(zeroVector)
-		if(wordInSentence >= 4):
-			X.append(curDataX)
+		#print(s)
+		if(len(s) < 4):
+			continue
+		(wvCur, posPolCur, ok) = singleDataFormat(s)
+		
+		if(ok):
+			wvX.append(wvCur)
+			posPolX.append(posPolCur)
 			Y.append([sentiment[id], 1-sentiment[id]])
+			cnt += 1
 			
-	for i in range(len(X)):
-		st = len(X[i])
+	for i in range(len(wvX)):
+		st = len(wvX[i])
 		for j in range(st, mxSize):
-			X[i].append(zeroVector)
-	return (X, Y)
+			wvX[i].append(zeroVectorWV)
+			posPolX[i].append(zeroVectorPosPol)
+	return (wvX, posPolX, Y)
 				
 def processDatasetY():
 	positive = 0
 	negative = 0
 	start = True
-	for line in open(homeDir+"Data/sentiment_labels.txt"):
+	for line in open("Data/sentiment_labels.txt"):
 		if(start): 
 			start = False
 		else:
@@ -88,47 +180,44 @@ def processDatasetY():
 	print(positive, negative)
 	'''
 
-def processDataset():
-	global Xtest, Ytest
-	processDatasetY()
-	(Xtest, Ytest) = processDatasetX()
-	
-'''
-def verifyDataset():
-	global X
-	print("---------------------------------")
-	for i in X: 
-		if(len(i) != mxSize): 
-			print(len(i))
-			exit(0)
-'''
 
-
-def binaryMetric(y_true, y_pred):
-	correct = 0
-	for i in range(0, y_true.shape[0]): 
-		if( (y_true[i][0] <= 0.5 and y_pred[i][0] <= 0.5) or (y_true[i][0] >= 0.5 and y_pred[i][0] >= 0.5)) : 
-			correct += 1
-	return (correct * 100.0)/ed
-
-
-def configureDataset(X,Y):
+def toNumpy2(X,Y):
 	dataY = numpy.array(Y)
 	dataX = numpy.array(X)
+	print(len(X))
+	print(len(X[0]))
+	print(len(X[0][0]))
+	print(type(X[0][0]))
 	dataX = dataX.reshape(len(X), len(X[0]), len(X[0][0]), 1)
 	return (dataX, dataY)
+
+def toNumpy1(X):
+	dataX = numpy.array(X)
+	print(len(X))
+	print(len(X[0]))
+	print(len(X[0][0]))
+	print(type(X[0][0]))
+	dataX = dataX.reshape(len(X), len(X[0]), len(X[0][0]), 1)
+	return dataX
+	
+def processDataset():
+	processDatasetY()
+	(tempWVX, tempPPX, tempY) = processDatasetX("Data/test.txt")
+	(xTest, yTest) =  toNumpy2(tempWVX, tempY)
+	testPosPol = toNumpy1(tempPPX)
+	return (xTest, testPosPol, yTest)
 				
-processDataset()
 
+
+print("START")
+#wordVectorLayers
 #print("Max size of X: " + str(mxSize) + ", totalData: " + str(totalData));
+(testX_WV, testX_PosPol, testY) = processDataset()
 
-
-
-(testX, testY) = configureDataset(Xtest, Ytest)
 
 model = load_model("FunctionalPosPolWV_1.h5")
 print("Going to predict")
-prediction = model.predict(testX)
+prediction = model.predict([testX_WV, testX_PosPol])
 
 correct = 0
 i = 0
