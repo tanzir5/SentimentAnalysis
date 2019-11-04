@@ -20,15 +20,16 @@ NEGATIVE = [0, 1, 0, 0]
 NEUTRAL = [0, 0, 1, 0]
 AMBIGUOUS = [0, 0, 0, 1]
 
-ADJ =     [1, 0, 0, 0]
-NOUN =    [0, 1, 0, 0]
-ADV =     [0, 0, 1, 0]
-VERB =    [0, 0, 0, 1]
+ADJ =     [1, 0, 0, 0, 0]
+NOUN =    [0, 1, 0, 0, 0]
+ADV =     [0, 0, 1, 0, 0]
+VERB =    [0, 0, 0, 1, 0]
+OTHERS =  [0, 0, 0, 0, 1]
 
 word2vecModel = gensim.models.KeyedVectors.load_word2vec_format(homeDir+"Data/GoogleNews-vectors-negative300.bin", binary=True)
 wordVectors = word2vecModel.wv
 dimensionWV = word2vecModel.vector_size
-dimensionPosPol = 8	
+dimensionPosPol = 9	
 zeroVectorWV = [0] * dimensionWV
 zeroVectorPosPol = [0] * dimensionPosPol
 
@@ -58,7 +59,7 @@ def penn_to_wn(tag):
     elif tag.startswith('V'):
         return (wn.VERB, VERB)
     
-    return (None, None)
+    return (None, OTHERS)
 
 def singleDataFormat(data):
 	global POSITIVE, NEGATIVE, NEUTRAL, AMBIGUOUS, wordVectors
@@ -82,34 +83,35 @@ def singleDataFormat(data):
 
 		for word, tag in tagged_sentence:
 			(wn_tag, tmp) = penn_to_wn(tag)
+			posPolCur = tmp.copy()
 			
 			if wn_tag not in (wn.NOUN, wn.ADJ, wn.ADV, wn.VERB):
-				#print(word, wn_tag)
-				continue
-			posPolCur = tmp.copy()
-			lemma = WordNetLemmatizer().lemmatize(word, pos=wn_tag)
-			#print(word, lemma)
-			if not lemma:
-				#print(word, lemma, "2")
-				continue
-			synsets = wn.synsets(lemma, pos=wn_tag)
-			if not synsets:
-				#print(word)
-				continue
-			
-			# Take the first sense, the most common
-			synset = synsets[0]
-			swn_synset = swn.senti_synset(synset.name())
-			
-			if swn_synset.obj_score() >= threshhold:
-				posPolCur += NEUTRAL				
-			elif swn_synset.pos_score() > swn_synset.neg_score() + eps: 
-				posPolCur += POSITIVE
-			elif swn_synset.neg_score() > swn_synset.pos_score() + eps:
-				posPolCur += NEGATIVE
-			else: 
-				posPolCur += AMBIGUOUS
-			
+				posPolCur += NEUTRAL
+			else:
+				lemma = WordNetLemmatizer().lemmatize(word, pos=wn_tag)
+				#print(word, lemma)
+				if not lemma:
+					print(word, lemma, "2")
+					error("NOT LEMMA")
+					exit(0)
+					
+				synsets = wn.synsets(lemma, pos=wn_tag)
+				if not synsets:
+					posPolCur += NEUTRAL
+				else:
+					# Take the first sense, the most common
+					synset = synsets[0]
+					swn_synset = swn.senti_synset(synset.name())
+					
+					if swn_synset.obj_score() >= threshhold:
+						posPolCur += NEUTRAL				
+					elif swn_synset.pos_score() > swn_synset.neg_score() + eps: 
+						posPolCur += POSITIVE
+					elif swn_synset.neg_score() > swn_synset.pos_score() + eps:
+						posPolCur += NEGATIVE
+					else: 
+						posPolCur += AMBIGUOUS
+				
 			if word in wordVectors:
 				totalWords += 1
 				WV.append(wordVectors[word])
@@ -122,6 +124,7 @@ def singleDataFormat(data):
 		ok = True
 	else: 
 		ok = False
+		#print(doc)
 	return (WV, posPol, ok)
 	
 def processDatasetX(location):
@@ -131,16 +134,21 @@ def processDatasetX(location):
 	posPolX = []
 	Y = []
 
-	cnt = 0
+	accepted = 0
+	rejected = 0
 	for line in open(location):
 		line = line.lower()
 		s = line.split()
 		idString = s[-1][s[-1].find("|")+1:]
+		lastWord = s[-1][0:s[-1].find("|")]
 		id = int(idString)
 		#print(s, idString)
-		s = s[:-1]
+		s = s[:-1] 
+		s.append(lastWord)
+		
 		#print(s)
 		if(len(s) < 4):
+			rejected += 1
 			continue
 		(wvCur, posPolCur, ok) = singleDataFormat(s)
 		
@@ -148,13 +156,18 @@ def processDatasetX(location):
 			wvX.append(wvCur)
 			posPolX.append(posPolCur)
 			Y.append([sentiment[id], 1-sentiment[id]])
-			cnt += 1
-			
+			accepted += 1
+		else: 
+	#		print(line)
+			rejected += 1
+	
 	for i in range(len(wvX)):
 		st = len(wvX[i])
 		for j in range(st, mxSize):
 			wvX[i].append(zeroVectorWV)
 			posPolX[i].append(zeroVectorPosPol)
+	
+	print("ac: " + str(accepted) + ", rejected: " + str(rejected))
 	return (wvX, posPolX, Y)
 				
 def processDatasetY():
@@ -204,10 +217,10 @@ def toNumpy1(X):
 	
 def processDataset():
 	processDatasetY()
-	(tempWVX, tempPPX, tempY) = processDatasetX(homeDir+"Data/train.txt")
+	(tempWVX, tempPPX, tempY) = processDatasetX(homeDir+"Data/cleanTrain.txt")
 	(xTrain, yTrain) = toNumpy2(tempWVX, tempY) 
 	trainPosPol = toNumpy1(tempPPX)
-	(tempWVX, tempPPX, tempY) = processDatasetX(homeDir+"Data/test.txt")
+	(tempWVX, tempPPX, tempY) = processDatasetX(homeDir+"Data/cleanTest.txt")
 	(xTest, yTest) =  toNumpy2(tempWVX, tempY)
 	testPosPol = toNumpy1(tempPPX)
 	return (xTrain, trainPosPol, yTrain, xTest, testPosPol, yTest)
@@ -257,7 +270,7 @@ sgd = SGD(learning_rate=0.01)
 model = Model(inputs = [inputWV, inputPP], outputs = output)
 model.compile(optimizer = sgd, loss='binary_crossentropy', metrics=['mse'])
 model.fit([trainX_WV, trainX_PosPol], trainY, validation_data = ([testX_WV, testX_PosPol], testY), epochs=100)
-model.save("FunctionalPosPolWV_1.h5")
+model.save("FunctionalPosPolWV_2.h5")
 print("DONE")
 
   

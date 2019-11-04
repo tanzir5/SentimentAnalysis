@@ -6,6 +6,8 @@ import numpy
 import gensim
 from keras.utils import to_categorical
 
+homeDir = "/home/robolab/Desktop/Tanzir/SentimentAnalysis/SentimentAnalysis/English_StanfordSentimentTreebank_Word2Vec/"
+
 dimension = 0
 sentiment = {int:float}
 mxSize = 60
@@ -24,7 +26,7 @@ def processDatasetX(location):
 	Y = []
 	
 	#word2vecModel = Word2Vec.load("sentimentTreebankWord2vec.model")
-	word2vecModel = gensim.models.KeyedVectors.load_word2vec_format("Data/GoogleNews-vectors-negative300.bin", binary=True, limit=100000)
+	word2vecModel = gensim.models.KeyedVectors.load_word2vec_format(homeDir + "Data/GoogleNews-vectors-negative300.bin", binary=True)
 
 	wordVectors = word2vecModel.wv
 	dimension = word2vecModel.vector_size	
@@ -35,8 +37,11 @@ def processDatasetX(location):
 		line = line.lower()
 		s = line.split()
 		idString = s[-1][s[-1].find("|")+1:]
+		lastWord = s[-1][0:s[-1].find("|")]
 		id = int(idString)
-		s = s[:-1]
+		#print(s, idString)
+		s = s[:-1] 
+		s.append(lastWord)
 		wordInSentence = 0
 		curDataX = []
 		for word in s: 
@@ -59,7 +64,7 @@ def processDatasetY():
 	positive = 0
 	negative = 0
 	start = True
-	for line in open("Data/sentiment_labels.txt"):
+	for line in open(homeDir + "Data/sentiment_labels.txt"):
 		if(start): 
 			start = False
 		else:
@@ -83,8 +88,8 @@ def processDatasetY():
 def processDataset():
 	global Xtrain, Ytrain, Xtest, Ytest
 	processDatasetY()
-	(Xtrain, Ytrain) = processDatasetX("Data/train.txt")
-	(Xtest, Ytest) = processDatasetX("Data/test.txt")
+	(Xtrain, Ytrain) = processDatasetX(homeDir + "Data/cleanTrain.txt")
+	(Xtest, Ytest) = processDatasetX(homeDir + "Data/cleanTest.txt")
 	
 '''
 def verifyDataset():
@@ -129,6 +134,6 @@ model.add(Dense(300, activation = "sigmoid"))
 model.add(Dense(2, activation="softmax"))
 sgd = SGD(learning_rate=0.01)
 model.compile(optimizer = sgd, loss='binary_crossentropy', metrics=['mse'])
-model.fit(trainX, trainY, validation_data = (testX, testY), epochs=15)
-model.save("FirstModel.h5")
+model.fit(trainX, trainY, validation_data = (testX, testY), epochs=100)
+model.save("wvModelCleanNoNLTK_1.h5")
 

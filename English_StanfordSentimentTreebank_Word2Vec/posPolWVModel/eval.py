@@ -6,11 +6,15 @@ from gensim.models import Word2Vec
 import numpy
 import gensim
 from keras.utils import to_categorical
+from keras.models import load_model
 
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet as wn
 from nltk.corpus import sentiwordnet as swn
 from nltk import sent_tokenize, word_tokenize, pos_tag
+
+
+homeDir = "/home/robolab/Desktop/Tanzir/SentimentAnalysis/SentimentAnalysis/English_StanfordSentimentTreebank_Word2Vec/"
 
 
 
@@ -19,23 +23,25 @@ NEGATIVE = [0, 1, 0, 0]
 NEUTRAL = [0, 0, 1, 0]
 AMBIGUOUS = [0, 0, 0, 1]
 
-ADJ =     [1, 0, 0, 0]
-NOUN =    [0, 1, 0, 0]
-ADV =     [0, 0, 1, 0]
-VERB =    [0, 0, 0, 1]
+ADJ =     [1, 0, 0, 0, 0]
+NOUN =    [0, 1, 0, 0, 0]
+ADV =     [0, 0, 1, 0, 0]
+VERB =    [0, 0, 0, 1, 0]
+OTHERS =  [0, 0, 0, 0, 1]
 
-homeDir = "/home/robolab/Desktop/Tanzir/SentimentAnalysis/SentimentAnalysis/English_StanfordSentimentTreebank_Word2Vec/"
-
-
-word2vecModel = gensim.models.KeyedVectors.load_word2vec_format(homeDir + "Data/GoogleNews-vectors-negative300.bin", binary=True)
+word2vecModel = gensim.models.KeyedVectors.load_word2vec_format(homeDir+"Data/GoogleNews-vectors-negative300.bin", binary=True)
 wordVectors = word2vecModel.wv
 dimensionWV = word2vecModel.vector_size
-dimensionPosPol = 8	
+dimensionPosPol = 9	
 zeroVectorWV = [0] * dimensionWV
 zeroVectorPosPol = [0] * dimensionPosPol
 
 sentiment = {int:float}
 mxSize = 60
+Xtrain = []
+Ytrain = []
+Xtest = []
+Ytest = []
 def error(message):
 	print(message)
 	exit(0)
@@ -56,7 +62,7 @@ def penn_to_wn(tag):
     elif tag.startswith('V'):
         return (wn.VERB, VERB)
     
-    return (None, None)
+    return (None, OTHERS)
 
 def singleDataFormat(data):
 	global POSITIVE, NEGATIVE, NEUTRAL, AMBIGUOUS, wordVectors
@@ -76,38 +82,40 @@ def singleDataFormat(data):
 	threshhold = 0.5
 	
 	for raw_sentence in raw_sentences:
+		#tagged_sentence = pos_tag(word_tokenize(raw_sentence))
 		tagged_sentence = pos_tag(word_tokenize(raw_sentence))
 
 		for word, tag in tagged_sentence:
 			(wn_tag, tmp) = penn_to_wn(tag)
+			posPolCur = tmp.copy()
 			
 			if wn_tag not in (wn.NOUN, wn.ADJ, wn.ADV, wn.VERB):
-				#print(word, wn_tag)
-				continue
-			posPolCur = tmp.copy()
-			lemma = WordNetLemmatizer().lemmatize(word, pos=wn_tag)
-			#print(word, lemma)
-			if not lemma:
-				#print(word, lemma, "2")
-				continue
-			synsets = wn.synsets(lemma, pos=wn_tag)
-			if not synsets:
-				#print(word)
-				continue
-			
-			# Take the first sense, the most common
-			synset = synsets[0]
-			swn_synset = swn.senti_synset(synset.name())
-			
-			if swn_synset.obj_score() >= threshhold:
-				posPolCur += NEUTRAL				
-			elif swn_synset.pos_score() > swn_synset.neg_score() + eps: 
-				posPolCur += POSITIVE
-			elif swn_synset.neg_score() > swn_synset.pos_score() + eps:
-				posPolCur += NEGATIVE
-			else: 
-				posPolCur += AMBIGUOUS
-			
+				posPolCur += NEUTRAL
+			else:
+				lemma = WordNetLemmatizer().lemmatize(word, pos=wn_tag)
+				#print(word, lemma)
+				if not lemma:
+					print(word, lemma, "2")
+					error("NOT LEMMA")
+					exit(0)
+					
+				synsets = wn.synsets(lemma, pos=wn_tag)
+				if not synsets:
+					posPolCur += NEUTRAL
+				else:
+					# Take the first sense, the most common
+					synset = synsets[0]
+					swn_synset = swn.senti_synset(synset.name())
+					
+					if swn_synset.obj_score() >= threshhold:
+						posPolCur += NEUTRAL				
+					elif swn_synset.pos_score() > swn_synset.neg_score() + eps: 
+						posPolCur += POSITIVE
+					elif swn_synset.neg_score() > swn_synset.pos_score() + eps:
+						posPolCur += NEGATIVE
+					else: 
+						posPolCur += AMBIGUOUS
+				
 			if word in wordVectors:
 				totalWords += 1
 				WV.append(wordVectors[word])
@@ -120,6 +128,7 @@ def singleDataFormat(data):
 		ok = True
 	else: 
 		ok = False
+		#print(doc)
 	return (WV, posPol, ok)
 	
 def processDatasetX(location):
@@ -159,7 +168,7 @@ def processDatasetY():
 	positive = 0
 	negative = 0
 	start = True
-	for line in open("Data/sentiment_labels.txt"):
+	for line in open(homeDir+"Data/sentiment_labels.txt"):
 		if(start): 
 			start = False
 		else:
@@ -202,28 +211,32 @@ def toNumpy1(X):
 	
 def processDataset():
 	processDatasetY()
-	(tempWVX, tempPPX, tempY) = processDatasetX("Data/test.txt")
+	(tempWVX, tempPPX, tempY) = processDatasetX(homeDir+"Data/cleanTest.txt")
 	(xTest, yTest) =  toNumpy2(tempWVX, tempY)
 	testPosPol = toNumpy1(tempPPX)
 	return (xTest, testPosPol, yTest)
 				
+def loadAndPredict(location, test):
+	model = load_model(location)
+	print("Going to predict")
+	prediction = model.predict(test)
 
+	correct = 0
+	i = 0
+	print(type(prediction))
+	for p in prediction: 
+		if( (p[0] <= 0.5 and testY[i][0] <= 0.5) or (p[0] >= 0.5 and testY[i][0] >= 0.5)) : 
+			correct += 1
+		i += 1
+	print(correct, i, (correct * 100.0)/i)
 
+	
+#FunctionalPosPolWV_1.h5
 print("START")
 #wordVectorLayers
 #print("Max size of X: " + str(mxSize) + ", totalData: " + str(totalData));
 (testX_WV, testX_PosPol, testY) = processDataset()
+loadAndPredict("FunctionalPosPolWV_2.h5", [testX_WV, testX_PosPol])
+#loadAndPredict("wvModelClean_1.h5", [testX_WV, testX_PosPol])
+loadAndPredict("wvModelCleanNoNLTK_1.h5", [testX_WV])
 
-
-model = load_model("FunctionalPosPolWV_1.h5")
-print("Going to predict")
-prediction = model.predict([testX_WV, testX_PosPol])
-
-correct = 0
-i = 0
-print(type(prediction))
-for p in prediction: 
-	if( (p[0] <= 0.5 and testY[i][0] <= 0.5) or (p[0] >= 0.5 and testY[i][0] >= 0.5)) : 
-		correct += 1
-	i += 1
-print(correct, i, (correct * 100.0)/i)
